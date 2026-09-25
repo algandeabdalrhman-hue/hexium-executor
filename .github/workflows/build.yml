@@ -21,8 +21,8 @@ jobs:
           -miphoneos-version-min=13.0 \
           -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
           -o executor.dylib executor.c \
-          -I/usr/local/opt/lua@5.1/include \
-          -L/usr/local/opt/lua@5.1/lib \
+          -I/usr/local/opt/lua@/include \
+          -L/usr/local/opt/lua/lib \
           -llua -undefined dynamic_lookup
     
     - name: Upload Dylib Artifact
