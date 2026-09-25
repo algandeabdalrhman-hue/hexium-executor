@@ -1,4 +1,4 @@
-name: Build Lua iOS Library
+name: Build Lua iOS Dylib
 
 on:
   push:
@@ -14,16 +14,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download Lua
+        shell: bash
         run: |
           set -euo pipefail
 
+          LUA_VERSION="5.4.7"
+
           curl -fsSL \
-            https://www.lua.org/ftp/lua-5.4.7.tar.gz \
+            "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" \
             -o lua.tar.gz
 
           tar -xzf lua.tar.gz
 
-      - name: Build iOS-compatible Lua
+      - name: Build Lua for iOS ARM64
         shell: bash
         run: |
           set -euo pipefail
@@ -34,7 +37,7 @@ jobs:
 
           rm -f *.o liblua.a
 
-          IOS_CFLAGS=(
+          CFLAGS=(
             -arch arm64
             -isysroot "$SDK"
             -miphoneos-version-min=13.0
@@ -45,7 +48,7 @@ jobs:
             -fPIC
           )
 
-          CORE_SOURCES=(
+          SOURCES=(
             lapi.c
             lcode.c
             lctype.c
@@ -78,8 +81,8 @@ jobs:
             linit.c
           )
 
-          for source in "${CORE_SOURCES[@]}"; do
-            clang "${IOS_CFLAGS[@]}" -c "$source"
+          for source in "${SOURCES[@]}"; do
+            clang "${CFLAGS[@]}" -c "$source"
           done
 
           ar rcs liblua.a *.o
@@ -91,17 +94,33 @@ jobs:
           cp liblua.a "$GITHUB_WORKSPACE/lua/lib/"
 
       - name: Verify Lua
+        shell: bash
         run: |
           set -euo pipefail
 
-          test -f lua/include/lua.h
-          test -f lua/lib/liblua.a
+          test -f "$GITHUB_WORKSPACE/lua/include/lua.h"
+          test -f "$GITHUB_WORKSPACE/lua/lib/liblua.a"
 
-          echo "Lua headers:"
-          ls -la lua/include
+          echo "lua.h:"
+          ls -l "$GITHUB_WORKSPACE/lua/include/lua.h"
 
-          echo "Lua static library:"
-          file lua/lib/liblua.a
+          echo "liblua.a:"
+          file "$GITHUB_WORKSPACE/lua/lib/liblua.a"
+
+      - name: Locate bridge source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -f "$GITHUB_WORKSPACE/lua_bridge.c" ]; then
+            echo "SOURCE=$GITHUB_WORKSPACE/lua_bridge.c" >> "$GITHUB_ENV"
+          elif [ -f "$GITHUB_WORKSPACE/src/lua_bridge.c" ]; then
+            echo "SOURCE=$GITHUB_WORKSPACE/src/lua_bridge.c" >> "$GITHUB_ENV"
+          else
+            echo "ERROR: lua_bridge.c was not found."
+            echo "Add lua_bridge.c to the repository before building."
+            exit 1
+          fi
 
       - name: Build iOS dynamic library
         shell: bash
@@ -118,17 +137,20 @@ jobs:
             -miphoneos-version-min=13.0 \
             -I"$GITHUB_WORKSPACE/lua/include" \
             -o libLuaBridge.dylib \
-            lua_bridge.c \
+            "$SOURCE" \
             "$GITHUB_WORKSPACE/lua/lib/liblua.a"
 
       - name: Verify dylib
+        shell: bash
         run: |
           set -euo pipefail
+
+          test -f libLuaBridge.dylib
 
           file libLuaBridge.dylib
           xcrun lipo -info libLuaBridge.dylib
 
-      - name: Upload
+      - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
           name: ios-arm64-lua-dylib
