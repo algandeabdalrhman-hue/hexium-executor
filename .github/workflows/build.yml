@@ -107,20 +107,34 @@ jobs:
           echo "liblua.a:"
           file "$GITHUB_WORKSPACE/lua/lib/liblua.a"
 
-      - name: Locate bridge source
+      - name: Locate C source
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ -f "$GITHUB_WORKSPACE/lua_bridge.c" ]; then
-            echo "SOURCE=$GITHUB_WORKSPACE/lua_bridge.c" >> "$GITHUB_ENV"
-          elif [ -f "$GITHUB_WORKSPACE/src/lua_bridge.c" ]; then
-            echo "SOURCE=$GITHUB_WORKSPACE/src/lua_bridge.c" >> "$GITHUB_ENV"
-          else
-            echo "ERROR: lua_bridge.c was not found."
-            echo "Add lua_bridge.c to the repository before building."
+          SOURCE=""
+
+          while IFS= read -r candidate; do
+            case "$candidate" in
+              */lua-5.4.7/*) continue ;;
+            esac
+
+            SOURCE="$candidate"
+            break
+          done < <(
+            find "$GITHUB_WORKSPACE" \
+              -type f \
+              -name "*.c" \
+              -print
+          )
+
+          if [ -z "$SOURCE" ]; then
+            echo "ERROR: No C source file was found."
             exit 1
           fi
+
+          echo "Using source: $SOURCE"
+          echo "SOURCE=$SOURCE" >> "$GITHUB_ENV"
 
       - name: Build iOS dynamic library
         shell: bash
