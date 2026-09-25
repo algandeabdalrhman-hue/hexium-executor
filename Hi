@@ -1,0 +1,59 @@
+- name: Build Lua for iPhoneOS
+  shell: bash
+  run: |
+    set -e
+
+    LUA_VERSION=5.4.7
+
+    curl -fsSL \
+      "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" \
+      -o lua.tar.gz
+
+    tar -xzf lua.tar.gz
+    cd "lua-${LUA_VERSION}"
+
+    SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+
+    make clean || true
+
+    make \
+      CC="clang -arch arm64 -isysroot $SDK -miphoneos-version-min=13.0" \
+      MYCFLAGS="-fPIC" \
+      MYLDFLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=13.0" \
+      generic
+
+    mkdir -p "$GITHUB_WORKSPACE/lua/include"
+    mkdir -p "$GITHUB_WORKSPACE/lua/lib"
+
+    cp src/*.h "$GITHUB_WORKSPACE/lua/include/"
+    cp src/liblua.a "$GITHUB_WORKSPACE/lua/lib/"
+
+- name: Build dylib
+  shell: bash
+  run: |
+    set -e
+
+    SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+
+    test -f "$GITHUB_WORKSPACE/lua/include/lua.h"
+
+    clang \
+      -arch arm64 \
+      -fPIC \
+      -dynamiclib \
+      -miphoneos-version-min=13.0 \
+      -isysroot "$SDK" \
+      -I"$GITHUB_WORKSPACE/lua/include" \
+      -o libLuaBridge.dylib \
+      lua_bridge.c
+
+- name: Verify
+  run: |
+    file libLuaBridge.dylib
+    xcrun lipo -info libLuaBridge.dylib
+
+- name: Upload
+  uses: actions/upload-artifact@v4
+  with:
+    name: ios-arm64-lua-dylib
+    path: libLuaBridge.dylib
