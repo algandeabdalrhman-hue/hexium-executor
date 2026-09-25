@@ -13,6 +13,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Create Lua bridge source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > lua_bridge.c <<'EOF'
+          #include "lua.h"
+          #include "lauxlib.h"
+          #include "lualib.h"
+
+          __attribute__((visibility("default")))
+          int lua_bridge_test(void) {
+              lua_State *L = luaL_newstate();
+
+              if (L == NULL)
+                  return 0;
+
+              luaL_openlibs(L);
+              lua_close(L);
+
+              return 1;
+          }
+          EOF
+
       - name: Download Lua
         shell: bash
         run: |
@@ -39,13 +63,13 @@ jobs:
           s = p.read_text()
 
           s = s.replace(
-              "{LUA_OSLIBNAME, luaopen_os},",
-              "/* os disabled on iOS */"
+              "{LUA_LOADLIBNAME, luaopen_package},",
+              "/* package disabled on iOS */"
           )
 
           s = s.replace(
-              "{LUA_LOADLIBNAME, luaopen_package},",
-              "/* package disabled on iOS */"
+              "{LUA_OSLIBNAME, luaopen_os},",
+              "/* os disabled on iOS */"
           )
 
           p.write_text(s)
@@ -56,20 +80,40 @@ jobs:
             -isysroot "$SDK"
             -miphoneos-version-min=13.0
             -O2
-            -Wall
-            -Wextra
-            -DLUA_COMPAT_5_3
             -fPIC
           )
 
           SOURCES=(
-            lapi.c lcode.c lctype.c ldebug.c ldo.c
-            ldump.c lfunc.c lgc.c llex.c lmem.c
-            lobject.c lopcodes.c lparser.c lstate.c
-            lstring.c ltable.c ltm.c lundump.c lvm.c
-            lzio.c lauxlib.c lbaselib.c lcorolib.c
-            ldblib.c liolib.c lmathlib.c lstrlib.c
-            ltablib.c lutf8lib.c linit.c
+            lapi.c
+            lcode.c
+            lctype.c
+            ldebug.c
+            ldo.c
+            ldump.c
+            lfunc.c
+            lgc.c
+            llex.c
+            lmem.c
+            lobject.c
+            lopcodes.c
+            lparser.c
+            lstate.c
+            lstring.c
+            ltable.c
+            ltm.c
+            lundump.c
+            lvm.c
+            lzio.c
+            lauxlib.c
+            lbaselib.c
+            lcorolib.c
+            ldblib.c
+            liolib.c
+            lmathlib.c
+            lstrlib.c
+            ltablib.c
+            lutf8lib.c
+            linit.c
           )
 
           rm -f *.o liblua.a
@@ -86,22 +130,10 @@ jobs:
           cp *.h "$GITHUB_WORKSPACE/lua/include/"
           cp liblua.a "$GITHUB_WORKSPACE/lua/lib/"
 
-      - name: Verify Lua
+      - name: Build Lua dylib
         shell: bash
         run: |
           set -euo pipefail
-
-          test -f lua/include/lua.h
-          test -f lua/lib/liblua.a
-
-          file lua/lib/liblua.a
-
-      - name: Build Lua bridge dylib
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          test -f lua_bridge.c
 
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 
@@ -112,11 +144,11 @@ jobs:
             -isysroot "$SDK" \
             -miphoneos-version-min=13.0 \
             -I"$GITHUB_WORKSPACE/lua/include" \
-            -o libLuaBridge.dylib \
             lua_bridge.c \
-            "$GITHUB_WORKSPACE/lua/lib/liblua.a"
+            "$GITHUB_WORKSPACE/lua/lib/liblua.a" \
+            -o libLuaBridge.dylib
 
-      - name: Verify dylib
+      - name: Verify
         shell: bash
         run: |
           set -euo pipefail
@@ -124,7 +156,7 @@ jobs:
           file libLuaBridge.dylib
           xcrun lipo -info libLuaBridge.dylib
 
-      - name: Upload
+      - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
           name: ios-arm64-lua-dylib
