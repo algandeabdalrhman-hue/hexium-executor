@@ -1,9 +1,8 @@
-name: Build Lua iOS Dylib
+name: Build Lua iOS Library
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -15,54 +14,94 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download Lua
-        shell: bash
         run: |
           set -euo pipefail
 
-          LUA_VERSION="5.4.7"
-
-          curl -fL \
-            "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" \
+          curl -fsSL \
+            https://www.lua.org/ftp/lua-5.4.7.tar.gz \
             -o lua.tar.gz
 
           tar -xzf lua.tar.gz
 
-      - name: Build Lua for iOS ARM64
+      - name: Build iOS-compatible Lua
         shell: bash
         run: |
           set -euo pipefail
 
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 
-          cd lua-5.4.7
+          cd lua-5.4.7/src
 
-          make clean || true
+          rm -f *.o liblua.a
 
-          make \
-            CC="clang -arch arm64 -isysroot ${SDK} -miphoneos-version-min=13.0" \
-            MYCFLAGS="-fPIC" \
-            MYLDFLAGS="-arch arm64 -isysroot ${SDK} -miphoneos-version-min=13.0" \
-            generic
+          IOS_CFLAGS=(
+            -arch arm64
+            -isysroot "$SDK"
+            -miphoneos-version-min=13.0
+            -O2
+            -Wall
+            -Wextra
+            -DLUA_COMPAT_5_3
+            -fPIC
+          )
+
+          CORE_SOURCES=(
+            lapi.c
+            lcode.c
+            lctype.c
+            ldebug.c
+            ldo.c
+            ldump.c
+            lfunc.c
+            lgc.c
+            llex.c
+            lmem.c
+            lobject.c
+            lopcodes.c
+            lparser.c
+            lstate.c
+            lstring.c
+            ltable.c
+            ltm.c
+            lundump.c
+            lvm.c
+            lzio.c
+            lauxlib.c
+            lbaselib.c
+            lcorolib.c
+            ldblib.c
+            liolib.c
+            lmathlib.c
+            lstrlib.c
+            ltablib.c
+            lutf8lib.c
+            linit.c
+          )
+
+          for source in "${CORE_SOURCES[@]}"; do
+            clang "${IOS_CFLAGS[@]}" -c "$source"
+          done
+
+          ar rcs liblua.a *.o
 
           mkdir -p "$GITHUB_WORKSPACE/lua/include"
           mkdir -p "$GITHUB_WORKSPACE/lua/lib"
 
-          cp src/*.h "$GITHUB_WORKSPACE/lua/include/"
-          cp src/liblua.a "$GITHUB_WORKSPACE/lua/lib/"
+          cp *.h "$GITHUB_WORKSPACE/lua/include/"
+          cp liblua.a "$GITHUB_WORKSPACE/lua/lib/"
 
       - name: Verify Lua
-        shell: bash
         run: |
           set -euo pipefail
 
-          test -f "$GITHUB_WORKSPACE/lua/include/lua.h"
-          test -f "$GITHUB_WORKSPACE/lua/lib/liblua.a"
+          test -f lua/include/lua.h
+          test -f lua/lib/liblua.a
 
-          echo "lua.h found:"
-          ls -l "$GITHUB_WORKSPACE/lua/include/lua.h"
+          echo "Lua headers:"
+          ls -la lua/include
 
-          echo "liblua.a found:"
-          ls -l "$GITHUB_WORKSPACE/lua/lib/liblua.a"
+          echo "Lua static library:"
+          file lua/lib/liblua.a
 
       - name: Build iOS dynamic library
         shell: bash
@@ -78,20 +117,18 @@ jobs:
             -isysroot "$SDK" \
             -miphoneos-version-min=13.0 \
             -I"$GITHUB_WORKSPACE/lua/include" \
-            -L"$GITHUB_WORKSPACE/lua/lib" \
             -o libLuaBridge.dylib \
             lua_bridge.c \
-            -llua
+            "$GITHUB_WORKSPACE/lua/lib/liblua.a"
 
       - name: Verify dylib
-        shell: bash
         run: |
           set -euo pipefail
 
           file libLuaBridge.dylib
           xcrun lipo -info libLuaBridge.dylib
 
-      - name: Upload dylib
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: ios-arm64-lua-dylib
