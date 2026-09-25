@@ -1,0 +1,32 @@
+name: Build Hexium Executor Dylib
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Lua
+      run: brew install lua@5.1
+    
+    - name: Compile Lua Dylib
+      run: |
+        clang -arch arm64 -fPIC -dynamically_registered -shared \
+          -miphoneos-version-min=13.0 \
+          -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
+          -o executor.dylib executor.c \
+          -I/usr/local/opt/lua@5.1/include \
+          -L/usr/local/opt/lua@5.1/lib \
+          -llua -undefined dynamic_lookup
+    
+    - name: Upload Dylib Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: executor-dylib
+        path: executor.dylib
