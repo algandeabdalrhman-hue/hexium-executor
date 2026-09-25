@@ -18,24 +18,38 @@ jobs:
         run: |
           set -euo pipefail
 
-          LUA_VERSION="5.4.7"
-
           curl -fsSL \
-            "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" \
+            https://www.lua.org/ftp/lua-5.4.7.tar.gz \
             -o lua.tar.gz
 
           tar -xzf lua.tar.gz
 
-      - name: Build Lua for iOS ARM64
+      - name: Build Lua for iOS
         shell: bash
         run: |
           set -euo pipefail
 
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
-
           cd lua-5.4.7/src
 
-          rm -f *.o liblua.a
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("linit.c")
+          s = p.read_text()
+
+          s = s.replace(
+              "{LUA_OSLIBNAME, luaopen_os},",
+              "/* os disabled on iOS */"
+          )
+
+          s = s.replace(
+              "{LUA_LOADLIBNAME, luaopen_package},",
+              "/* package disabled on iOS */"
+          )
+
+          p.write_text(s)
+          PY
 
           CFLAGS=(
             -arch arm64
@@ -49,37 +63,16 @@ jobs:
           )
 
           SOURCES=(
-            lapi.c
-            lcode.c
-            lctype.c
-            ldebug.c
-            ldo.c
-            ldump.c
-            lfunc.c
-            lgc.c
-            llex.c
-            lmem.c
-            lobject.c
-            lopcodes.c
-            lparser.c
-            lstate.c
-            lstring.c
-            ltable.c
-            ltm.c
-            lundump.c
-            lvm.c
-            lzio.c
-            lauxlib.c
-            lbaselib.c
-            lcorolib.c
-            ldblib.c
-            liolib.c
-            lmathlib.c
-            lstrlib.c
-            ltablib.c
-            lutf8lib.c
-            linit.c
+            lapi.c lcode.c lctype.c ldebug.c ldo.c
+            ldump.c lfunc.c lgc.c llex.c lmem.c
+            lobject.c lopcodes.c lparser.c lstate.c
+            lstring.c ltable.c ltm.c lundump.c lvm.c
+            lzio.c lauxlib.c lbaselib.c lcorolib.c
+            ldblib.c liolib.c lmathlib.c lstrlib.c
+            ltablib.c lutf8lib.c linit.c
           )
+
+          rm -f *.o liblua.a
 
           for source in "${SOURCES[@]}"; do
             clang "${CFLAGS[@]}" -c "$source"
@@ -98,48 +91,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -f "$GITHUB_WORKSPACE/lua/include/lua.h"
-          test -f "$GITHUB_WORKSPACE/lua/lib/liblua.a"
+          test -f lua/include/lua.h
+          test -f lua/lib/liblua.a
 
-          echo "lua.h:"
-          ls -l "$GITHUB_WORKSPACE/lua/include/lua.h"
+          file lua/lib/liblua.a
 
-          echo "liblua.a:"
-          file "$GITHUB_WORKSPACE/lua/lib/liblua.a"
-
-      - name: Locate C source
+      - name: Build Lua bridge dylib
         shell: bash
         run: |
           set -euo pipefail
 
-          SOURCE=""
-
-          while IFS= read -r candidate; do
-            case "$candidate" in
-              */lua-5.4.7/*) continue ;;
-            esac
-
-            SOURCE="$candidate"
-            break
-          done < <(
-            find "$GITHUB_WORKSPACE" \
-              -type f \
-              -name "*.c" \
-              -print
-          )
-
-          if [ -z "$SOURCE" ]; then
-            echo "ERROR: No C source file was found."
-            exit 1
-          fi
-
-          echo "Using source: $SOURCE"
-          echo "SOURCE=$SOURCE" >> "$GITHUB_ENV"
-
-      - name: Build iOS dynamic library
-        shell: bash
-        run: |
-          set -euo pipefail
+          test -f lua_bridge.c
 
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 
@@ -151,7 +113,7 @@ jobs:
             -miphoneos-version-min=13.0 \
             -I"$GITHUB_WORKSPACE/lua/include" \
             -o libLuaBridge.dylib \
-            "$SOURCE" \
+            lua_bridge.c \
             "$GITHUB_WORKSPACE/lua/lib/liblua.a"
 
       - name: Verify dylib
@@ -159,12 +121,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -f libLuaBridge.dylib
-
           file libLuaBridge.dylib
           xcrun lipo -info libLuaBridge.dylib
 
-      - name: Upload dylib
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: ios-arm64-lua-dylib
