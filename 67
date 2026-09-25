@@ -1,0 +1,32 @@
+name: Build Hexium Executor Dylib
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lua5.4 liblua5.4-dev
+
+      - name: Compile Executor Dylib
+        run: |
+          clang -fPIC -shared \
+            executor.c \
+            -I/usr/include/lua5.4 \
+            -llua5.4 \
+            -o executor.dylib
+
+      - name: Upload Dylib Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: executor-dylib
+          path: executor.dylib
