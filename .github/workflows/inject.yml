@@ -1,0 +1,69 @@
+name: Inject Dylib into IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      ipa_file:
+        description: 'IPA filename (e.g., Hexium_Executor_Final.ipa)'
+        required: true
+        default: 'Hexium_Executor_Final.ipa'
+      dylib_file:
+        description: 'Dylib filename (e.g., executor.dylib)'
+        required: true
+        default: 'executor.dylib'
+
+jobs:
+  inject:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Verify files exist
+        run: |
+          if [ ! -f "${{ github.workspace }}/${{ inputs.ipa_file }}" ]; then
+            echo "Error: ${{ inputs.ipa_file }} not found"
+            exit 1
+          fi
+          if [ ! -f "${{ github.workspace }}/${{ inputs.dylib_file }}" ]; then
+            echo "Error: ${{ inputs.dylib_file }} not found"
+            exit 1
+          fi
+          echo "[+] Both files found"
+
+      - name: Extract IPA
+        run: |
+          cd "${{ github.workspace }}"
+          mkdir -p ipa_work
+          cd ipa_work
+          unzip -q "../${{ inputs.ipa_file }}"
+          echo "[+] IPA extracted"
+
+      - name: Inject dylib into app bundle
+        run: |
+          cd "${{ github.workspace }}/ipa_work"
+          APP_BUNDLE=$(find Payload -maxdepth 1 -type d -name "*.app" | head -1)
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "Error: No .app bundle found"
+            exit 1
+          fi
+          echo "[+] Found app bundle: $APP_BUNDLE"
+          cp "${{ github.workspace }}/${{ inputs.dylib_file }}" "$APP_BUNDLE/executor.dylib"
+          echo "[+] Dylib injected"
+
+      - name: Repack IPA
+        run: |
+          cd "${{ github.workspace }}/ipa_work"
+          zip -qr "../Hexium_Injected.ipa" Payload iTunesArtwork
+          cd "${{ github.workspace }}"
+          ls -lh Hexium_Injected.ipa
+          echo "[+] IPA repacked and ready"
+
+      - name: Upload injected IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: hexium-injected
+          path: ${{ github.workspace }}/Hexium_Injected.ipa
+
+      - name: Cleanup
+        run: rm -rf "${{ github.workspace }}/ipa_work"
