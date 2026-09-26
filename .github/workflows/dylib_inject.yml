@@ -1,0 +1,37 @@
+name: Inject Dylib into IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inject:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Download IPA
+        run: curl -L -o Hexium_2020.ipa "https://hexium.zip/downloads/Hexium_2020.ipa"
+
+      - name: Extract IPA
+        run: |
+          mkdir -p ipa_work
+          cd ipa_work
+          unzip -q ../Hexium_2020.ipa
+
+      - name: Inject dylib
+        run: |
+          cd ipa_work
+          APP_BUNDLE=$(find Payload -maxdepth 1 -type d -name "*.app" | head -1)
+          cp ../executor.dylib "$APP_BUNDLE/"
+
+      - name: Repack IPA
+        run: |
+          cd ipa_work
+          zip -qr ../Hexium_Injected.ipa Payload iTunesArtwork
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: hexium-injected
+          path: Hexium_Injected.ipa
