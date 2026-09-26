@@ -1,139 +1,68 @@
-name: Build Lua iOS Dylib
+name: Inject Dylib into IPA
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      dylib_file:
+        description: 'Dylib filename'
+        required: true
+        default: 'executor.dylib'
 
 jobs:
-  build:
+  inject:
     runs-on: macos-latest
-
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Download Lua
-        shell: bash
+      - name: Download IPA from URL
         run: |
-          set -euo pipefail
+          echo "[+] Downloading IPA..."
+          curl -L -o "${{ github.workspace }}/Hexium_2020.ipa" "https://hexium.zip/downloads/Hexium_2020.ipa"
+          if [ ! -f "${{ github.workspace }}/Hexium_2020.ipa" ]; then
+            echo "Error: Failed to download IPA"
+            exit 1
+          fi
+          echo "[+] IPA downloaded"
 
-          curl -fsSL \
-            https://www.lua.org/ftp/lua-5.4.7.tar.gz \
-            -o lua.tar.gz
-
-          tar -xzf lua.tar.gz
-
-      - name: Build Lua for iOS
-        shell: bash
+      - name: Verify dylib exists
         run: |
-          set -euo pipefail
+          if [ ! -f "${{ github.workspace }}/${{ inputs.dylib_file }}" ]; then
+            echo "Error: ${{ inputs.dylib_file }} not found"
+            exit 1
+          fi
+          echo "[+] Dylib found"
 
-          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
-          cd lua-5.4.7/src
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("linit.c")
-          s = p.read_text()
-
-          s = s.replace(
-              "{LUA_LOADLIBNAME, luaopen_package},",
-              "/* package disabled on iOS */"
-          )
-
-          s = s.replace(
-              "{LUA_OSLIBNAME, luaopen_os},",
-              "/* os disabled on iOS */"
-          )
-
-          p.write_text(s)
-          PY
-
-          CFLAGS=(
-            -arch arm64
-            -isysroot "$SDK"
-            -miphoneos-version-min=13.0
-            -O2
-            -fPIC
-          )
-
-          SOURCES=(
-            lapi.c
-            lcode.c
-            lctype.c
-            ldebug.c
-            ldo.c
-            ldump.c
-            lfunc.c
-            lgc.c
-            llex.c
-            lmem.c
-            lobject.c
-            lopcodes.c
-            lparser.c
-            lstate.c
-            lstring.c
-            ltable.c
-            ltm.c
-            lundump.c
-            lvm.c
-            lzio.c
-            lauxlib.c
-            lbaselib.c
-            lcorolib.c
-            ldblib.c
-            liolib.c
-            lmathlib.c
-            lstrlib.c
-            ltablib.c
-            lutf8lib.c
-            linit.c
-          )
-
-          rm -f *.o liblua.a
-
-          for source in "${SOURCES[@]}"; do
-            clang "${CFLAGS[@]}" -c "$source"
-          done
-
-          ar rcs liblua.a *.o
-
-          mkdir -p "$GITHUB_WORKSPACE/lua/include"
-          mkdir -p "$GITHUB_WORKSPACE/lua/lib"
-
-          cp *.h "$GITHUB_WORKSPACE/lua/include/"
-          cp liblua.a "$GITHUB_WORKSPACE/lua/lib/"
-
-      - name: Build Executor Dylib
-        shell: bash
+      - name: Extract IPA
         run: |
-          set -euo pipefail
+          cd "${{ github.workspace }}"
+          mkdir -p ipa_work
+          cd ipa_work
+          unzip -q "../Hexium_2020.ipa"
+          echo "[+] IPA extracted"
 
-          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
-
-          clang \
-            -arch arm64 \
-            -fPIC \
-            -dynamiclib \
-            -isysroot "$SDK" \
-            -miphoneos-version-min=13.0 \
-            -I"$GITHUB_WORKSPACE/lua/include" \
-            executor.c \
-            "$GITHUB_WORKSPACE/lua/lib/liblua.a" \
-            -o executor.dylib
-
-      - name: Verify
-        shell: bash
+      - name: Inject dylib
         run: |
-          set -euo pipefail
+          cd "${{ github.workspace }}/ipa_work"
+          APP_BUNDLE=$(find Payload -maxdepth 1 -type d -name "*.app" | head -1)
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "Error: No .app bundle found"
+            exit 1
+          fi
+          cp "${{ github.workspace }}/${{ inputs.dylib_file }}" "$APP_BUNDLE/executor.dylib"
+          echo "[+] Dylib injected"
 
-          file executor.dylib
-          xcrun lipo -info executor.dylib
+      - name: Repack IPA
+        run: |
+          cd "${{ github.workspace }}/ipa_work"
+          zip -qr "../Hexium_Injected.ipa" Payload iTunesArtwork
+          echo "[+] IPA repacked"
 
-      - name: Upload dylib
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: executor-dylib
-          path: executor.dylib
+          name: hexium-injected
+          path: ${{ github.workspace }}/Hexium_Injected.ipa
+
+      - name: Cleanup
+        run: rm -rf "${{ github.workspace }}/ipa_work"
