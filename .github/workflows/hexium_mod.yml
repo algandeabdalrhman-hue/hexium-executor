@@ -1,0 +1,34 @@
+name: Hexium Inject
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inject:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download IPA
+        run: curl -L -o /tmp/Hexium_2020.ipa "https://hexium.zip/downloads/Hexium_2020.ipa"
+      
+      - name: Extract IPA
+        run: |
+          cd /tmp
+          unzip -q Hexium_2020.ipa
+      
+      - name: Inject dylib
+        run: |
+          APP=$(find /tmp/Payload -name "*.app" | head -1)
+          cp "$GITHUB_WORKSPACE/executor.dylib" "$APP/"
+      
+      - name: Repack IPA
+        run: |
+          cd /tmp
+          zip -qr /tmp/Hexium_Injected.ipa Payload iTunesArtwork
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hexium-injected
+          path: /tmp/Hexium_Injected.ipa
