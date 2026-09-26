@@ -1,68 +1,34 @@
-name: Inject Dylib into IPA
+name: Hexium Inject
 
 on:
   workflow_dispatch:
-    inputs:
-      dylib_file:
-        description: 'Dylib filename'
-        required: true
-        default: 'executor.dylib'
 
 jobs:
   inject:
     runs-on: macos-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Download IPA from URL
-        run: |
-          echo "[+] Downloading IPA..."
-          curl -L -o "${{ github.workspace }}/Hexium_2020.ipa" "https://hexium.zip/downloads/Hexium_2020.ipa"
-          if [ ! -f "${{ github.workspace }}/Hexium_2020.ipa" ]; then
-            echo "Error: Failed to download IPA"
-            exit 1
-          fi
-          echo "[+] IPA downloaded"
-
-      - name: Verify dylib exists
-        run: |
-          if [ ! -f "${{ github.workspace }}/${{ inputs.dylib_file }}" ]; then
-            echo "Error: ${{ inputs.dylib_file }} not found"
-            exit 1
-          fi
-          echo "[+] Dylib found"
-
+      - uses: actions/checkout@v4
+      
+      - name: Download IPA
+        run: curl -L -o /tmp/Hexium_2020.ipa "https://hexium.zip/downloads/Hexium_2020.ipa"
+      
       - name: Extract IPA
         run: |
-          cd "${{ github.workspace }}"
-          mkdir -p ipa_work
-          cd ipa_work
-          unzip -q "../Hexium_2020.ipa"
-          echo "[+] IPA extracted"
-
+          cd /tmp
+          unzip -q Hexium_2020.ipa
+      
       - name: Inject dylib
         run: |
-          cd "${{ github.workspace }}/ipa_work"
-          APP_BUNDLE=$(find Payload -maxdepth 1 -type d -name "*.app" | head -1)
-          if [ -z "$APP_BUNDLE" ]; then
-            echo "Error: No .app bundle found"
-            exit 1
-          fi
-          cp "${{ github.workspace }}/${{ inputs.dylib_file }}" "$APP_BUNDLE/executor.dylib"
-          echo "[+] Dylib injected"
-
+          APP=$(find /tmp/Payload -name "*.app" | head -1)
+          cp "$GITHUB_WORKSPACE/executor.dylib" "$APP/"
+      
       - name: Repack IPA
         run: |
-          cd "${{ github.workspace }}/ipa_work"
-          zip -qr "../Hexium_Injected.ipa" Payload iTunesArtwork
-          echo "[+] IPA repacked"
-
+          cd /tmp
+          zip -qr /tmp/Hexium_Injected.ipa Payload iTunesArtwork
+      
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: hexium-injected
-          path: ${{ github.workspace }}/Hexium_Injected.ipa
-
-      - name: Cleanup
-        run: rm -rf "${{ github.workspace }}/ipa_work"
+          path: /tmp/Hexium_Injected.ipa
